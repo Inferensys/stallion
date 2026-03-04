@@ -5,7 +5,7 @@ import { io, Socket } from "socket.io-client";
 import { useMissionStore } from "@/store/mission-store";
 import { createClient } from "@/lib/supabase/client";
 import { authFetch } from "@/lib/api";
-import type { Mission, ChatMessage } from "@stallion/shared";
+import type { Mission, ChatMessage, SDKEnvelope } from "@stallion/shared";
 
 const BACKEND_URL = process.env.NEXT_PUBLIC_BACKEND_URL ?? "http://localhost:4000";
 const DEV_BYPASS = process.env.NEXT_PUBLIC_DEV_AUTH_BYPASS === "true";
@@ -24,6 +24,8 @@ export function useSocket(missionId: string | null) {
     addExplorationActivity,
     setReadinessScore,
     clearExplorationStream,
+    addSDKMessage,
+    addSDKMessages,
     addCredentialRequest,
   } = useMissionStore();
 
@@ -114,6 +116,15 @@ export function useSocket(missionId: string | null) {
         addEvent(event);
       });
 
+      // Raw SDK message relay (execution phase)
+      socket.on("sdk_message", (envelope: SDKEnvelope) => {
+        addSDKMessage(envelope);
+      });
+
+      socket.on("sdk_messages_batch", (envelopes: SDKEnvelope[]) => {
+        addSDKMessages(envelopes);
+      });
+
       socket.on("error", (err: { message?: string } | string) => {
         const message = typeof err === "string" ? err : err.message ?? "Unknown error";
         console.error("Socket error:", message);
@@ -138,7 +149,7 @@ export function useSocket(missionId: string | null) {
         socketRef.current = null;
       }
     };
-  }, [missionId, setMission, addEvent, addEvents, addChatMessage, setConnected, startTimer, stopTimer, appendExplorationToken, addExplorationActivity, setReadinessScore, clearExplorationStream, addCredentialRequest]);
+  }, [missionId, setMission, addEvent, addEvents, addChatMessage, setConnected, startTimer, stopTimer, appendExplorationToken, addExplorationActivity, setReadinessScore, clearExplorationStream, addSDKMessage, addSDKMessages, addCredentialRequest]);
 
   // Hydrate mission data from REST immediately on mount (don't wait for WS connect)
   useEffect(() => {
@@ -180,7 +191,18 @@ export function useSocket(missionId: string | null) {
         }
       })
       .catch(() => {});
-  }, [missionId, setMission, addEvents, addChatMessage, startTimer]);
+
+    // Fetch SDK messages (for execution phase replay)
+    authFetch(`/api/missions/${missionId}/sdk-messages`)
+      .then((res) => res.json())
+      .then((data) => {
+        const msgs = data.sdkMessages ?? [];
+        if (msgs.length > 0 && useMissionStore.getState().sdkMessages.length === 0) {
+          addSDKMessages(msgs);
+        }
+      })
+      .catch(() => {});
+  }, [missionId, setMission, addEvents, addChatMessage, addSDKMessages, startTimer]);
 
   const sendMessage = useCallback(
     (content: string) => {

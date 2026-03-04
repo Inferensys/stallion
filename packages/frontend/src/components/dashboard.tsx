@@ -7,6 +7,7 @@ import { ChatPanel } from "./chat-panel";
 import { ProgressPanel } from "./progress-panel";
 import { WorkspaceInspector } from "./workspace-inspector";
 import { ActivityLog } from "./activity-log";
+import { SDKActivityLog } from "./sdk-activity-log";
 import { DesktopViewer } from "./desktop-viewer";
 import { CredentialModal } from "./credential-modal";
 import { cn, formatDuration } from "@/lib/utils";
@@ -30,6 +31,7 @@ export function Dashboard({ missionId }: { missionId: string }) {
   const mission = useMissionStore((s) => s.mission);
   const connected = useMissionStore((s) => s.connected);
   const events = useMissionStore((s) => s.events);
+  const sdkMessageCount = useMissionStore((s) => s.sdkMessages.length);
   const credentialRequests = useMissionStore((s) => s.credentialRequests);
   const removeCredentialRequest = useMissionStore((s) => s.removeCredentialRequest);
   const elapsedMs = useMissionStore((s) => s.elapsedMs);
@@ -192,7 +194,7 @@ export function Dashboard({ missionId }: { missionId: string }) {
             {/* Tab content */}
             <div className="flex-1 overflow-hidden">
               {activeTab === "terminal" ? (
-                <ActivityLog />
+                sdkMessageCount > 0 ? <SDKActivityLog /> : <ActivityLog />
               ) : (
                 <DesktopViewer />
               )}
@@ -212,7 +214,7 @@ export function Dashboard({ missionId }: { missionId: string }) {
           Mission: {missionId}
         </span>
         <span className="text-[10px] text-text-muted">
-          {events.length} events
+          {sdkMessageCount > 0 ? `${sdkMessageCount} SDK messages` : `${events.length} events`}
         </span>
       </footer>
 

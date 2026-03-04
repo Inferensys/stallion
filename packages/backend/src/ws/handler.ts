@@ -63,6 +63,7 @@ export function setupWebSocket(
     const userId = (socket.data as Record<string, unknown>).userId as string;
     console.log(`Client connected: ${socket.id} (user: ${userId})`);
     let unsubscribe: (() => void) | null = null;
+    let unsubscribeSDK: (() => void) | null = null;
 
     // Join a mission room (supports both new and legacy event names)
     const handleJoin = (missionId: string) => {
@@ -77,6 +78,10 @@ export function setupWebSocket(
       if (unsubscribe) {
         unsubscribe();
         unsubscribe = null;
+      }
+      if (unsubscribeSDK) {
+        unsubscribeSDK();
+        unsubscribeSDK = null;
       }
 
       socket.join(missionId);
@@ -119,6 +124,17 @@ export function setupWebSocket(
           }
         }
       });
+
+      // Send historical SDK messages for replay
+      const sdkMessages = missionManager.getSDKMessages(missionId);
+      if (sdkMessages.length > 0) {
+        socket.emit("sdk_messages_batch", sdkMessages);
+      }
+
+      // Subscribe to live SDK message relay
+      unsubscribeSDK = missionManager.subscribeSDK(missionId, (envelope) => {
+        socket.emit("sdk_message", envelope);
+      });
     };
 
     socket.on("join_mission", handleJoin);
@@ -127,10 +143,8 @@ export function setupWebSocket(
     // Leave mission
     const handleLeave = (missionId: string) => {
       socket.leave(missionId);
-      if (unsubscribe) {
-        unsubscribe();
-        unsubscribe = null;
-      }
+      if (unsubscribe) { unsubscribe(); unsubscribe = null; }
+      if (unsubscribeSDK) { unsubscribeSDK(); unsubscribeSDK = null; }
     };
 
     socket.on("leave_mission", handleLeave);
@@ -193,9 +207,8 @@ export function setupWebSocket(
 
     socket.on("disconnect", () => {
       console.log(`Client disconnected: ${socket.id}`);
-      if (unsubscribe) {
-        unsubscribe();
-      }
+      if (unsubscribe) unsubscribe();
+      if (unsubscribeSDK) unsubscribeSDK();
     });
   });
 }

@@ -77,6 +77,31 @@ export const SessionEvent = z.object({
 });
 export type SessionEvent = z.infer<typeof SessionEvent>;
 
+// ─── Chat Messages ────────────────────────────────────────────────────────────
+
+export const ChatRole = z.enum(["user", "assistant", "system"]);
+export type ChatRole = z.infer<typeof ChatRole>;
+
+export const ChatMessage = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  role: ChatRole,
+  content: z.string(),
+  agentRole: z.string().optional(),
+  timestamp: z.number(),
+});
+export type ChatMessage = z.infer<typeof ChatMessage>;
+
+// ─── SDK Message Envelope (raw relay from Agent SDK) ─────────────────────────
+
+export const SDKEnvelope = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  timestamp: z.number(),
+  msg: z.unknown(), // raw SDKMessage — typed on frontend via SDK types
+});
+export type SDKEnvelope = z.infer<typeof SDKEnvelope>;
+
 // ─── Context Store Entry ──────────────────────────────────────────────────────
 
 export const ContextCategory = z.enum([

@@ -9,6 +9,7 @@ import type {
   ChatMessage,
   MissionAgentState,
   ContainerStatus,
+  SDKEnvelope,
 } from "@stallion/shared";
 import { MissionPlanner, MissionEngine } from "@stallion/agent-runtime";
 import type { MissionEnvConfig, ExplorationActivity } from "@stallion/agent-runtime";
@@ -40,6 +41,7 @@ interface MissionData {
   engine: MissionEngine | null;
   plan: MissionPlan | null;
   events: SessionEvent[];
+  sdkMessages: SDKEnvelope[];
   chat: ChatMessage[];
   status: Mission["status"];
   workspace: string;
@@ -59,6 +61,7 @@ interface MissionSnapshot {
   id: string;
   plan: MissionPlan | null;
   events: SessionEvent[];
+  sdkMessages?: SDKEnvelope[];
   chat: ChatMessage[];
   status: Mission["status"];
   workspace: string;
@@ -73,6 +76,7 @@ interface MissionSnapshot {
 export class MissionManager {
   private missions = new Map<string, MissionData>();
   private eventListeners = new Map<string, Set<(event: SessionEvent) => void>>();
+  private sdkMessageListeners = new Map<string, Set<(envelope: SDKEnvelope) => void>>();
   private envConfig: MissionEnvConfig;
   private dataDir: string;
   private saveTimers = new Map<string, NodeJS.Timeout>();
@@ -126,6 +130,7 @@ export class MissionManager {
       id,
       plan: data.plan,
       events: data.events,
+      sdkMessages: data.sdkMessages.length > 0 ? data.sdkMessages : undefined,
       chat: data.chat,
       status: data.status,
       workspace: data.workspace,
@@ -168,6 +173,7 @@ export class MissionManager {
           engine: null,
           plan: snapshot.plan,
           events: snapshot.events,
+          sdkMessages: snapshot.sdkMessages ?? [],
           chat: snapshot.chat,
           status,
           workspace: snapshot.workspace,
@@ -200,6 +206,7 @@ export class MissionManager {
       engine: null,
       plan: null,
       events: [],
+      sdkMessages: [],
       chat: [],
       status: "exploring",
       workspace: "",
@@ -585,7 +592,7 @@ export class MissionManager {
   }
 
   /**
-   * Local execution (original behavior): run MissionEngine directly on host.
+   * Local execution: thin SDK relay — raw SDKMessage events sent to frontend.
    */
   private async approvePlanLocal(id: string, data: MissionData): Promise<void> {
     // Initialize engine and workspace
@@ -596,38 +603,33 @@ export class MissionManager {
 
     this.saveMission(id, true);
 
-    // Execute in background
+    // Execute in background — two callbacks: SDK relay + lifecycle
     engine
-      .executePlan(data.plan!, data.workspace, (event) => {
-        data.events.push(event);
-        // Sync agent states from engine
-        data.agents = engine.getAgentStates();
-        // Sync task statuses from engine back to the plan
-        if (data.plan) {
-          const taskStatuses = engine.getTaskStatuses();
-          for (const { id: taskId, status } of taskStatuses) {
-            const task = data.plan.tasks.find((t) => t.id === taskId);
-            if (task) {
-              task.status = status as typeof task.status;
-            }
-          }
-        }
-        this.notifyListeners(id, event);
-
-        // Detect completion/failure
-        if (event.type === "session_completed") {
-          data.status = "completed";
-          data.completedAt = Date.now();
-          this.saveMission(id, true);
-        } else if (event.type === "session_error" && !event.agent) {
-          // Only top-level errors fail the mission (agent errors don't)
-          data.status = "failed";
-          data.completedAt = Date.now();
-          this.saveMission(id, true);
-        } else {
+      .executePlan(
+        data.plan!,
+        data.workspace,
+        // SDK message relay — send raw to WebSocket, persist for replay
+        (envelope) => {
+          data.sdkMessages.push(envelope);
+          this.notifySDKMessageListeners(id, envelope);
           this.saveMission(id); // debounced
-        }
-      })
+        },
+        // Lifecycle events — update mission status
+        (event) => {
+          data.events.push(event);
+          this.notifyListeners(id, event);
+
+          if (event.type === "session_completed") {
+            data.status = "completed";
+            data.completedAt = Date.now();
+            this.saveMission(id, true);
+          } else if (event.type === "session_error" && !event.agent) {
+            data.status = "failed";
+            data.completedAt = Date.now();
+            this.saveMission(id, true);
+          }
+        },
+      )
       .catch((err) => {
         console.error(`Mission ${id} execution failed:`, err);
         data.status = "failed";
@@ -786,6 +788,25 @@ export class MissionManager {
     };
   }
 
+  /** Subscribe to raw SDK message relay for a mission. */
+  subscribeSDK(
+    id: string,
+    listener: (envelope: SDKEnvelope) => void,
+  ): () => void {
+    if (!this.sdkMessageListeners.has(id)) {
+      this.sdkMessageListeners.set(id, new Set());
+    }
+    this.sdkMessageListeners.get(id)!.add(listener);
+    return () => {
+      this.sdkMessageListeners.get(id)?.delete(listener);
+    };
+  }
+
+  /** Get persisted SDK messages for replay on reconnect. */
+  getSDKMessages(id: string): SDKEnvelope[] {
+    return this.missions.get(id)?.sdkMessages ?? [];
+  }
+
   private emitEvent(id: string, event: SessionEvent): void {
     const data = this.missions.get(id);
     if (data) data.events.push(event);
@@ -797,6 +818,14 @@ export class MissionManager {
     if (!listeners) return;
     for (const listener of listeners) {
       listener(event);
+    }
+  }
+
+  private notifySDKMessageListeners(id: string, envelope: SDKEnvelope): void {
+    const listeners = this.sdkMessageListeners.get(id);
+    if (!listeners) return;
+    for (const listener of listeners) {
+      listener(envelope);
     }
   }
 

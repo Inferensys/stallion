@@ -169,6 +169,16 @@ export function missionsRouter(missionManager: MissionManager) {
     return c.json({ chat });
   });
 
+  // Get raw SDK messages (for hydration on reconnect)
+  router.get("/:id/sdk-messages", (c) => {
+    const id = c.req.param("id");
+    const result = checkOwnership(id, c.var.auth.userId);
+    if ("error" in result) return c.json({ error: result.error }, result.status);
+
+    const sdkMessages = missionManager.getSDKMessages(id);
+    return c.json({ sdkMessages });
+  });
+
   // List workspace files
   router.get("/:id/files", async (c) => {
     const id = c.req.param("id");

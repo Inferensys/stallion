@@ -7,6 +7,7 @@ import type {
   SessionEvent,
   ChatMessage,
   MissionAgentState,
+  SDKEnvelope,
 } from "@stallion/shared";
 
 export interface ExplorationFeedEntry {
@@ -38,6 +39,9 @@ interface MissionStore {
   // Exploration streaming state — single chronological feed
   explorationFeed: ExplorationFeedEntry[];
 
+  // Raw SDK message stream (for execution phase)
+  sdkMessages: SDKEnvelope[];
+
   // Credential requests from container agents
   credentialRequests: PendingCredentialRequest[];
 
@@ -51,6 +55,8 @@ interface MissionStore {
   appendExplorationToken: (chunk: string) => void;
   addExplorationActivity: (act: { summary: string; tool?: string; timestamp: number }) => void;
   clearExplorationStream: () => void;
+  addSDKMessage: (envelope: SDKEnvelope) => void;
+  addSDKMessages: (envelopes: SDKEnvelope[]) => void;
   addCredentialRequest: (request: PendingCredentialRequest) => void;
   removeCredentialRequest: (requestId: string) => void;
   startTimer: () => void;
@@ -73,6 +79,7 @@ export const useMissionStore = create<MissionStore>((set, get) => ({
   timerInterval: null,
   readinessScore: null,
   explorationFeed: [],
+  sdkMessages: [],
   credentialRequests: [],
 
   setMission: (mission) => set({ mission, readinessScore: mission.readinessScore }),
@@ -124,6 +131,20 @@ export const useMissionStore = create<MissionStore>((set, get) => ({
   clearExplorationStream: () =>
     set({ explorationFeed: [] }),
 
+  addSDKMessage: (envelope) =>
+    set((state) => ({
+      sdkMessages: [...state.sdkMessages, envelope],
+    })),
+
+  addSDKMessages: (envelopes) =>
+    set((state) => {
+      const existingIds = new Set(state.sdkMessages.map((e) => e.id));
+      const newEnvelopes = envelopes.filter((e) => !existingIds.has(e.id));
+      return newEnvelopes.length > 0
+        ? { sdkMessages: [...state.sdkMessages, ...newEnvelopes] }
+        : {};
+    }),
+
   addCredentialRequest: (request) =>
     set((state) => ({
       credentialRequests: [...state.credentialRequests, request],
@@ -166,6 +187,7 @@ export const useMissionStore = create<MissionStore>((set, get) => ({
       timerInterval: null,
       readinessScore: null,
       explorationFeed: [],
+      sdkMessages: [],
       credentialRequests: [],
     });
   },
