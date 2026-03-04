@@ -1,0 +1,93 @@
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0a0a0f;
+  --color-bg-surface: #12121a;
+  --color-bg-elevated: #1a1a26;
+  --color-bg-hover: #22222e;
+  --color-border: #2a2a3a;
+  --color-border-focus: #4f46e5;
+  --color-text-primary: #e8e8ed;
+  --color-text-secondary: #9898a8;
+  --color-text-muted: #6b6b7b;
+  --color-accent: #6366f1;
+  --color-accent-hover: #818cf8;
+  --color-success: #22c55e;
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --color-info: #3b82f6;
+
+  --color-mode-structured: #6366f1;
+  --color-mode-iterative: #22c55e;
+  --color-mode-exploratory: #f59e0b;
+  --color-mode-creative: #ec4899;
+  --color-mode-reflective: #8b5cf6;
+
+  --color-node-idle: #6b6b7b;
+  --color-node-working: #22c55e;
+  --color-node-completed: #3b82f6;
+  --color-node-error: #ef4444;
+  --color-edge-default: #2a2a3a;
+  --color-edge-active: #6366f1;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text-primary);
+  font-family: var(--font-inter), ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-bg);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+
+/* Landing page animations */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes glow-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.7; }
+}
+.animate-fade-in-up {
+  animation: fade-in-up 0.5s ease-out both;
+}
+.animate-fade-in-up-delay-1 {
+  animation: fade-in-up 0.5s ease-out 0.1s both;
+}
+.animate-fade-in-up-delay-2 {
+  animation: fade-in-up 0.5s ease-out 0.2s both;
+}
+.animate-fade-in-up-delay-3 {
+  animation: fade-in-up 0.5s ease-out 0.35s both;
+}
+
+/* Hide scrollbar but keep scrolling */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+/* Syntax highlighting tokens */
+.tok-keyword { color: #c678dd; }
+.tok-string { color: #98c379; }
+.tok-comment { color: #5c6370; font-style: italic; }
+.tok-number { color: #d19a66; }

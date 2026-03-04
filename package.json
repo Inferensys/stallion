@@ -1,0 +1,18 @@
+{
+  "name": "stallion",
+  "private": true,
+  "workspaces": [
+    "packages/shared",
+    "packages/agent-runtime",
+    "packages/backend",
+    "packages/frontend",
+    "packages/agent-vm/agent-control"
+  ],
+  "scripts": {
+    "dev:backend": "npm -w @stallion/backend run dev",
+    "dev:frontend": "npm -w @stallion/frontend run dev",
+    "dev:runtime": "npm -w @stallion/agent-runtime run dev",
+    "build": "npm -w @stallion/frontend run build",
+    "typecheck": "npm -ws run typecheck"
+  }
+}
