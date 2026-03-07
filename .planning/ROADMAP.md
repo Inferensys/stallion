@@ -12,7 +12,7 @@ Stallion ships as four phases that each deliver a complete, independently verifi
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Sandbox Infrastructure** - Safe, isolated CC execution environment with resource caps, credential proxy, and subprocess lifecycle management
+- [x] **Phase 1: Sandbox Infrastructure** - Safe, isolated CC execution environment with resource caps, credential proxy, and subprocess lifecycle management (completed 2026-03-07)
 - [ ] **Phase 2: Session UI and File Access** - Complete working product loop: start a session, watch the activity feed, chat with CC, browse and download files
 - [ ] **Phase 3: Auth and User Configuration** - User accounts, BYOK API keys, persistent skills, and GSD workflow injection
 - [ ] **Phase 4: MCP Marketplace** - Curated MCP directory with per-user install, encrypted credential management, and egress controls
@@ -92,7 +92,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Sandbox Infrastructure | 2/3 | In Progress|  |
+| 1. Sandbox Infrastructure | 3/3 | Complete   | 2026-03-07 |
 | 2. Session UI and File Access | 0/3 | Not started | - |
 | 3. Auth and User Configuration | 0/3 | Not started | - |
 | 4. MCP Marketplace | 0/2 | Not started | - |

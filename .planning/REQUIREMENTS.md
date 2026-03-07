@@ -12,7 +12,7 @@
 - [x] **SAND-03**: Container has resource limits: 4GB RAM, 2 CPU, 10GB disk
 - [x] **SAND-04**: Per-session wall-clock timeout (configurable, default 30 minutes)
 - [x] **SAND-05**: Per-session API cost budget cap (configurable, default $5)
-- [ ] **SAND-06**: Credential proxy — CC session never sees raw API keys; proxy injects auth headers
+- [x] **SAND-06**: Credential proxy — CC session never sees raw API keys; proxy injects auth headers
 - [x] **SAND-07**: Container cleanup on session end (no zombie containers)
 
 ### Session Management
@@ -102,7 +102,7 @@
 | SAND-03 | Phase 1 | Complete |
 | SAND-04 | Phase 1 | Complete |
 | SAND-05 | Phase 1 | Complete |
-| SAND-06 | Phase 1 | Pending |
+| SAND-06 | Phase 1 | Complete |
 | SAND-07 | Phase 1 | Complete |
 | SESS-01 | Phase 2 | Pending |
 | SESS-02 | Phase 2 | Pending |
