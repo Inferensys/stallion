@@ -6,7 +6,7 @@
     "packages/agent-runtime",
     "packages/backend",
     "packages/frontend",
-    "packages/agent-vm/agent-control"
+    "packages/agent-control"
   ],
   "scripts": {
     "dev:backend": "npm -w @stallion/backend run dev",
