@@ -7,8 +7,8 @@
 
 ### Sandbox & Execution
 
-- [ ] **SAND-01**: Each CC session runs in an isolated Docker container with its own filesystem
-- [ ] **SAND-02**: CC has full tool access inside the container: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, Task
+- [x] **SAND-01**: Each CC session runs in an isolated Docker container with its own filesystem
+- [x] **SAND-02**: CC has full tool access inside the container: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, Task
 - [ ] **SAND-03**: Container has resource limits: 4GB RAM, 2 CPU, 10GB disk
 - [ ] **SAND-04**: Per-session wall-clock timeout (configurable, default 30 minutes)
 - [ ] **SAND-05**: Per-session API cost budget cap (configurable, default $5)
@@ -97,8 +97,8 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SAND-01 | Phase 1 | Pending |
-| SAND-02 | Phase 1 | Pending |
+| SAND-01 | Phase 1 | Complete (01-01) |
+| SAND-02 | Phase 1 | Complete (01-01) |
 | SAND-03 | Phase 1 | Pending |
 | SAND-04 | Phase 1 | Pending |
 | SAND-05 | Phase 1 | Pending |

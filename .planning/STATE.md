@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: Phase 1 context gathered
-last_updated: "2026-03-07T09:42:54.683Z"
-last_activity: 2026-03-07 — Roadmap created, phases derived from requirements
+status: in_progress
+stopped_at: "Completed 01-01-PLAN.md"
+last_updated: "2026-03-07T10:28:00Z"
+last_activity: 2026-03-07 — Completed plan 01-01 (agent-control package + Dockerfile + shared sandbox types)
 progress:
   total_phases: 4
   completed_phases: 0
-  total_plans: 0
-  completed_plans: 0
-  percent: 0
+  total_plans: 11
+  completed_plans: 1
+  percent: 9
 ---
 
 # Project State
@@ -26,27 +26,27 @@ See: .planning/PROJECT.md (updated 2026-03-07)
 ## Current Position
 
 Phase: 1 of 4 (Sandbox Infrastructure)
-Plan: 0 of 3 in current phase
-Status: Ready to plan
-Last activity: 2026-03-07 — Roadmap created, phases derived from requirements
+Plan: 1 of 3 in current phase
+Status: In progress
+Last activity: 2026-03-07 — Completed plan 01-01 (agent-control package + Dockerfile + shared sandbox types)
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [█░░░░░░░░░] 9%
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 0
-- Average duration: -
-- Total execution time: 0 hours
+- Total plans completed: 1
+- Average duration: 3 min
+- Total execution time: 0.05 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| - | - | - | - |
+| Phase 1 (Sandbox Infrastructure) | 1/3 | 3 min | 3 min |
 
 **Recent Trend:**
-- Last 5 plans: none yet
+- Last 5 plans: 01-01 (3 min)
 - Trend: -
 
 *Updated after each plan completion*
@@ -61,6 +61,9 @@ Recent decisions affecting current work:
 - [Pre-phase]: Docker (dockerode) for MVP sandbox — already installed, fastest path; E2B/Firecracker for production (v2)
 - [Pre-phase]: BYO API key initially — defer billing complexity; users provide their own Anthropic/Azure key
 - [Pre-phase]: CC IS the workflow — install GSD skill into CC rather than orchestrating around it
+- [01-01]: Inline StartSessionRequest Zod schema in index.ts rather than importing @stallion/shared into the container — keeps image lean, avoids monorepo coupling at runtime
+- [01-01]: Use node:http (no framework) in the container control server — minimal dependencies, simpler image
+- [01-01]: POST /start returns 200 immediately and runs session async — prevents HTTP timeout on long-running sessions
 
 ### Pending Todos
 
@@ -74,6 +77,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-03-07T09:42:54.680Z
-Stopped at: Phase 1 context gathered
-Resume file: .planning/phases/01-sandbox-infrastructure/01-CONTEXT.md
+Last session: 2026-03-07T10:28:00Z
+Stopped at: Completed 01-01-PLAN.md
+Resume file: .planning/phases/01-sandbox-infrastructure/01-01-SUMMARY.md
