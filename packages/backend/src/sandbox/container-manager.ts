@@ -1,7 +1,6 @@
 import Docker from "dockerode";
 import { nanoid } from "nanoid";
 import type { SandboxConfig, ContainerInfo } from "@stallion/shared";
-import tar from "tar-stream";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createWriteStream } from "node:fs";

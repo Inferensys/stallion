@@ -2,119 +2,121 @@ import { nanoid } from "nanoid";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import type {
-  Mission,
-  MissionPlan,
-  SessionEvent,
-  ChatMessage,
-  MissionAgentState,
-  ContainerStatus,
-  SDKEnvelope,
-} from "@stallion/shared";
-import { MissionPlanner, MissionEngine } from "@stallion/agent-runtime";
-import type { MissionEnvConfig, ExplorationActivity } from "@stallion/agent-runtime";
-import type { ContainerManager, CredentialPayload } from "./container-manager.js";
+import type { Mission, SessionEvent, ChatMessage, SDKEnvelope } from "@stallion/shared";
+import {
+  ContainerManager,
+  ContainerClient,
+  SessionStore,
+  CostMonitor,
+  startSessionTimers,
+} from "../sandbox/index.js";
+import type { TimerHandle } from "../sandbox/index.js";
 
-function buildEnvConfig(): MissionEnvConfig {
-  const foundryResource = process.env.ANTHROPIC_FOUNDRY_RESOURCE;
-  const foundryApiKey = process.env.ANTHROPIC_FOUNDRY_API_KEY;
+// ─── Default Proxy Port ───────────────────────────────────────────────────────
+// The credential proxy (Plan 03) runs on this port by default.
+// Override via CREDENTIAL_PROXY_PORT env var.
+const DEFAULT_PROXY_PORT = 9100;
 
-  if (!foundryResource || !foundryApiKey) {
-    throw new Error(
-      "Missing required env vars: ANTHROPIC_FOUNDRY_RESOURCE and ANTHROPIC_FOUNDRY_API_KEY",
-    );
-  }
-
-  return {
-    foundryResource,
-    foundryApiKey,
-    defaultModel: process.env.ANTHROPIC_DEFAULT_SONNET_MODEL,
-    capableModel: process.env.ANTHROPIC_DEFAULT_OPUS_MODEL,
-    workspaceRoot: process.env.STALLION_WORKSPACE_ROOT,
-    imageGenEndpoint: process.env.AZURE_IMAGE_GEN_ENDPOINT,
-    imageGenApiKey: process.env.AZURE_IMAGE_GEN_KEY,
-  };
-}
+// ─── MissionData ─────────────────────────────────────────────────────────────
 
 interface MissionData {
-  planner: MissionPlanner;
-  engine: MissionEngine | null;
-  plan: MissionPlan | null;
+  engine: null; // Always null — engine now runs inside a container
+  containerId: string | null;
+  hostPort: number | null;
+  authToken: string | null;
+  sdkSessionId: string | null; // SDK session ID for resume capability
+  disconnectWs: (() => void) | null; // Runtime only — not persisted
+  timers: TimerHandle | null; // Runtime only — not persisted
+  prompt: string;
   events: SessionEvent[];
   sdkMessages: SDKEnvelope[];
   chat: ChatMessage[];
   status: Mission["status"];
   workspace: string;
-  agents: MissionAgentState[];
-  readinessScore: number | null;
   userId?: string;
   startedAt: number | null;
   completedAt: number | null;
   createdAt: number;
-  // Container fields
-  vncUrl?: string;
-  containerStatus?: ContainerStatus;
-  containerUnsubscribe?: () => void;
 }
+
+// ─── MissionSnapshot ─────────────────────────────────────────────────────────
 
 interface MissionSnapshot {
   id: string;
-  plan: MissionPlan | null;
+  containerId?: string | null;
+  hostPort?: number | null;
+  authToken?: string | null;
+  sdkSessionId?: string | null;
+  prompt: string;
   events: SessionEvent[];
   sdkMessages?: SDKEnvelope[];
   chat: ChatMessage[];
   status: Mission["status"];
   workspace: string;
-  agents: MissionAgentState[];
-  readinessScore: number | null;
   userId?: string;
   startedAt: number | null;
   completedAt: number | null;
   createdAt: number;
 }
 
+// ─── MissionManager ───────────────────────────────────────────────────────────
+
 export class MissionManager {
   private missions = new Map<string, MissionData>();
   private eventListeners = new Map<string, Set<(event: SessionEvent) => void>>();
   private sdkMessageListeners = new Map<string, Set<(envelope: SDKEnvelope) => void>>();
-  private envConfig: MissionEnvConfig;
   private dataDir: string;
   private saveTimers = new Map<string, NodeJS.Timeout>();
-  private containerManager: ContainerManager | null = null;
 
-  private constructor() {
-    this.envConfig = buildEnvConfig();
+  private containerManager: ContainerManager;
+  private containerClient: ContainerClient;
+  private sessionStore: SessionStore;
+  private costMonitor: CostMonitor;
+  private proxyPort: number;
+
+  private constructor(proxyPort: number) {
+    this.proxyPort = proxyPort;
     this.dataDir = path.join(os.homedir(), ".stallion", "missions");
+    this.containerManager = new ContainerManager();
+    this.containerClient = new ContainerClient();
+    this.sessionStore = new SessionStore(path.join(os.homedir(), ".stallion", "sessions"));
+    this.costMonitor = new CostMonitor();
   }
 
-  static async create(containerManager?: ContainerManager): Promise<MissionManager> {
-    const mm = new MissionManager();
-    if (containerManager) {
-      mm.containerManager = containerManager;
-    }
+  static async create(proxyPort?: number): Promise<MissionManager> {
+    const port =
+      proxyPort ??
+      (process.env["CREDENTIAL_PROXY_PORT"]
+        ? parseInt(process.env["CREDENTIAL_PROXY_PORT"], 10)
+        : DEFAULT_PROXY_PORT);
+
+    const mm = new MissionManager(port);
     await fs.mkdir(mm.dataDir, { recursive: true });
     await mm.loadMissions();
+
+    // Sweep any orphan containers from previous crashed backend runs
+    const swept = await mm.containerManager.sweepOrphans();
+    if (swept > 0) {
+      console.log(`MissionManager: swept ${swept} orphan container(s) on startup`);
+    }
+
     console.log(
-      `MissionManager initialized (Foundry: ${mm.envConfig.foundryResource}, data: ${mm.dataDir}, containers: ${containerManager ? "enabled" : "disabled"})`,
+      `MissionManager initialized (proxyPort: ${port}, data: ${mm.dataDir})`,
     );
     return mm;
   }
 
-  private useContainers(): boolean {
-    return this.containerManager !== null && process.env.STALLION_USE_CONTAINERS === "true";
-  }
+  // ── Persistence ─────────────────────────────────────────────────────────────
 
   private async saveMission(id: string, immediate = false): Promise<void> {
-    // Clear any existing debounce timer
     const existing = this.saveTimers.get(id);
     if (existing) clearTimeout(existing);
-
     if (immediate) {
       await this.writeMissionSnapshot(id);
     } else {
       const timer = setTimeout(() => {
         this.writeMissionSnapshot(id).catch((err) =>
-          console.error(`Failed to save mission ${id}:`, err),
+          console.error(`Save failed ${id}:`, err),
         );
         this.saveTimers.delete(id);
       }, 1000);
@@ -125,25 +127,28 @@ export class MissionManager {
   private async writeMissionSnapshot(id: string): Promise<void> {
     const data = this.missions.get(id);
     if (!data) return;
-
     const snapshot: MissionSnapshot = {
       id,
-      plan: data.plan,
+      containerId: data.containerId,
+      hostPort: data.hostPort,
+      authToken: data.authToken,
+      sdkSessionId: data.sdkSessionId,
+      prompt: data.prompt,
       events: data.events,
       sdkMessages: data.sdkMessages.length > 0 ? data.sdkMessages : undefined,
       chat: data.chat,
       status: data.status,
       workspace: data.workspace,
-      agents: data.agents,
-      readinessScore: data.readinessScore,
       userId: data.userId,
       startedAt: data.startedAt,
       completedAt: data.completedAt,
       createdAt: data.createdAt,
     };
-
-    const filePath = path.join(this.dataDir, `${id}.json`);
-    await fs.writeFile(filePath, JSON.stringify(snapshot), "utf-8");
+    await fs.writeFile(
+      path.join(this.dataDir, `${id}.json`),
+      JSON.stringify(snapshot),
+      "utf-8",
+    );
   }
 
   private async loadMissions(): Promise<void> {
@@ -154,64 +159,65 @@ export class MissionManager {
       return;
     }
 
-    const jsonFiles = entries.filter((e) => e.endsWith(".json"));
-    for (const file of jsonFiles) {
+    for (const file of entries.filter((e) => e.endsWith(".json"))) {
       try {
         const raw = await fs.readFile(path.join(this.dataDir, file), "utf-8");
-        const snapshot: MissionSnapshot = JSON.parse(raw);
-
-        // If was running/launching, mark as failed (can't resume SDK session)
-        let status = snapshot.status;
-        let completedAt = snapshot.completedAt;
-        if (status === "running" || status === "launching") {
+        const s = JSON.parse(raw) as MissionSnapshot;
+        let status = s.status;
+        let completedAt = s.completedAt;
+        if (status === "running") {
           status = "failed";
           completedAt = Date.now();
         }
-
-        const data: MissionData = {
-          planner: new MissionPlanner(this.envConfig),
-          engine: null,
-          plan: snapshot.plan,
-          events: snapshot.events,
-          sdkMessages: snapshot.sdkMessages ?? [],
-          chat: snapshot.chat,
-          status,
-          workspace: snapshot.workspace,
-          agents: snapshot.agents,
-          readinessScore: snapshot.readinessScore ?? null,
-          userId: snapshot.userId,
-          startedAt: snapshot.startedAt,
-          completedAt,
-          createdAt: snapshot.createdAt,
-        };
-
-        this.missions.set(snapshot.id, data);
-
-        // If we changed status, persist that
-        if (status !== snapshot.status) {
-          await this.writeMissionSnapshot(snapshot.id);
+        if (!["idle", "running", "completed", "failed"].includes(status)) {
+          status = "failed";
+          completedAt = completedAt ?? Date.now();
         }
+        this.missions.set(s.id, {
+          engine: null,
+          containerId: s.containerId ?? null,
+          hostPort: s.hostPort ?? null,
+          authToken: s.authToken ?? null,
+          sdkSessionId: s.sdkSessionId ?? null,
+          disconnectWs: null,
+          timers: null,
+          prompt: s.prompt ?? "",
+          events: s.events ?? [],
+          sdkMessages: s.sdkMessages ?? [],
+          chat: s.chat ?? [],
+          status: status as Mission["status"],
+          workspace: s.workspace ?? "",
+          userId: s.userId,
+          startedAt: s.startedAt,
+          completedAt,
+          createdAt: s.createdAt,
+        });
+        if (status !== s.status) await this.writeMissionSnapshot(s.id);
       } catch (err) {
-        console.error(`Failed to load mission from ${file}:`, err);
+        console.error(`Failed to load ${file}:`, err);
       }
     }
-
     console.log(`Loaded ${this.missions.size} missions from disk`);
   }
+
+  // ── Mission lifecycle ────────────────────────────────────────────────────────
 
   createMission(userId?: string): Mission {
     const id = `mission-${nanoid(10)}`;
     const data: MissionData = {
-      planner: new MissionPlanner(this.envConfig),
       engine: null,
-      plan: null,
+      containerId: null,
+      hostPort: null,
+      authToken: null,
+      sdkSessionId: null,
+      disconnectWs: null,
+      timers: null,
+      prompt: "",
       events: [],
       sdkMessages: [],
       chat: [],
-      status: "exploring",
+      status: "idle",
       workspace: "",
-      agents: [],
-      readinessScore: null,
       userId,
       startedAt: null,
       completedAt: null,
@@ -222,552 +228,334 @@ export class MissionManager {
     return this.toMission(id, data);
   }
 
-  async planMission(
-    id: string,
-    userInput: string,
-  ): Promise<{ type: "questions" | "plan"; content: string | MissionPlan }> {
+  async startMission(id: string, prompt: string): Promise<void> {
     const data = this.missions.get(id);
     if (!data) throw new Error(`Mission ${id} not found`);
 
-    // Store the user message
-    data.chat.push({
-      id: `msg-${nanoid(8)}`,
-      sessionId: id,
-      role: "user",
-      content: userInput,
-      timestamp: Date.now(),
-    });
-
-    const result = await data.planner.planMission(userInput, data.chat);
-
-    if (result.type === "plan") {
-      data.plan = result.content as MissionPlan;
-      data.status = "review";
-      data.agents = data.plan.agents.map((a) => ({
-        name: a.name,
-        displayName: a.displayName,
-        specialization: a.specialization,
-        status: "idle" as const,
-        currentAction: null,
-        messagesProcessed: 0,
-      }));
-
-      // Store assistant response
-      data.chat.push({
-        id: `msg-${nanoid(8)}`,
-        sessionId: id,
-        role: "assistant",
-        content: `Mission plan created: **${data.plan.title}**\n\n${data.plan.objective}\n\nAgents: ${data.plan.agents.map((a) => a.name).join(", ")}\nTasks: ${data.plan.tasks.length}\nComplexity: ${data.plan.estimatedComplexity}`,
-        timestamp: Date.now(),
-      });
-
-      this.emitEvent(id, {
-        id: nanoid(),
-        sessionId: id,
-        type: "mission_planned",
-        summary: `Mission plan created: ${data.plan.title}`,
-        data: { plan: data.plan },
-        timestamp: Date.now(),
-      });
-    } else {
-      // Store assistant questions
-      data.chat.push({
-        id: `msg-${nanoid(8)}`,
-        sessionId: id,
-        role: "assistant",
-        content: result.content as string,
-        timestamp: Date.now(),
-      });
-    }
-
-    this.saveMission(id, result.type === "plan");
-    return result;
-  }
-
-  async exploreMission(
-    id: string,
-    userInput: string,
-    onActivity?: (activity: ExplorationActivity) => void,
-  ): Promise<{ text: string; readiness: number }> {
-    const data = this.missions.get(id);
-    if (!data) throw new Error(`Mission ${id} not found`);
-    if (data.status !== "exploring") {
-      throw new Error(`Mission ${id} is not in exploring status (current: ${data.status})`);
-    }
-
-    // Store user message
-    data.chat.push({
-      id: `msg-${nanoid(8)}`,
-      sessionId: id,
-      role: "user",
-      content: userInput,
-      timestamp: Date.now(),
-    });
-
-    // Stream activity events to WebSocket listeners (ephemeral — not persisted)
-    const streamActivity = (activity: ExplorationActivity) => {
-      onActivity?.(activity);
-      this.notifyListeners(id, {
-        id: nanoid(),
-        sessionId: id,
-        type: "exploration_activity",
-        summary: activity.summary,
-        data: { tool: activity.tool, activityType: activity.type },
-        timestamp: activity.timestamp,
-      });
-    };
-
-    // Stream token events to WebSocket listeners (ephemeral)
-    const streamToken = (chunk: string) => {
-      this.notifyListeners(id, {
-        id: nanoid(),
-        sessionId: id,
-        type: "exploration_token",
-        summary: chunk,
-        timestamp: Date.now(),
-      });
-    };
-
-    const result = await data.planner.explore(userInput, data.chat, streamActivity, streamToken);
-
-    // Store clean assistant text
-    data.chat.push({
-      id: `msg-${nanoid(8)}`,
-      sessionId: id,
-      role: "assistant",
-      content: result.text,
-      agentRole: "explorer",
-      timestamp: Date.now(),
-    });
-
-    data.readinessScore = result.readiness;
-    this.saveMission(id);
-
-    // Notify completion (ephemeral)
-    this.notifyListeners(id, {
-      id: nanoid(),
-      sessionId: id,
-      type: "exploration_done",
-      summary: "Exploration response complete",
-      data: { readiness: result.readiness, text: result.text },
-      timestamp: Date.now(),
-    });
-
-    return result;
-  }
-
-  async beginPlanning(id: string): Promise<Mission> {
-    const data = this.missions.get(id);
-    if (!data) throw new Error(`Mission ${id} not found`);
-    if (data.status !== "exploring") {
-      throw new Error(`Mission ${id} is not in exploring status (current: ${data.status})`);
-    }
-
-    data.status = "planning";
-    this.saveMission(id, true);
-
-    // Build exploration context from chat history
-    const explorationContext = data.chat
-      .map((m) => `${m.role === "user" ? "User" : "Aria"}: ${m.content}`)
-      .join("\n\n");
-
-    const plan = await data.planner.planFromContext(explorationContext);
-
-    if (plan) {
-      data.plan = plan;
-      data.status = "review";
-      data.agents = plan.agents.map((a) => ({
-        name: a.name,
-        displayName: a.displayName,
-        specialization: a.specialization,
-        status: "idle" as const,
-        currentAction: null,
-        messagesProcessed: 0,
-      }));
-
-      data.chat.push({
-        id: `msg-${nanoid(8)}`,
-        sessionId: id,
-        role: "assistant",
-        content: `Mission plan created: **${plan.title}**\n\n${plan.objective}\n\nAgents: ${plan.agents.map((a) => a.name).join(", ")}\nTasks: ${plan.tasks.length}\nComplexity: ${plan.estimatedComplexity}`,
-        agentRole: "planner",
-        timestamp: Date.now(),
-      });
-
-      this.emitEvent(id, {
-        id: nanoid(),
-        sessionId: id,
-        type: "mission_planned",
-        summary: `Mission plan created: ${plan.title}`,
-        data: { plan },
-        timestamp: Date.now(),
-      });
-    } else {
-      // Plan generation failed — stay in planning status
-      data.chat.push({
-        id: `msg-${nanoid(8)}`,
-        sessionId: id,
-        role: "assistant",
-        content: "Failed to generate a mission plan from the conversation. Please try again.",
-        agentRole: "planner",
-        timestamp: Date.now(),
-      });
-    }
-
-    await this.saveMission(id, true);
-    return this.toMission(id, data);
-  }
-
-  async approvePlan(id: string): Promise<void> {
-    const data = this.missions.get(id);
-    if (!data) throw new Error(`Mission ${id} not found`);
-    if (!data.plan) throw new Error(`Mission ${id} has no plan to approve`);
-
-    data.status = "launching";
-    data.startedAt = Date.now();
-
-    if (this.useContainers()) {
-      await this.approvePlanWithContainer(id, data);
-    } else {
-      await this.approvePlanLocal(id, data);
-    }
-  }
-
-  /**
-   * Container-based execution: create a Docker container, execute plan inside it,
-   * and relay events back through WebSocket.
-   */
-  private async approvePlanWithContainer(id: string, data: MissionData): Promise<void> {
-    const cm = this.containerManager!;
-
-    try {
-      // Emit container lifecycle event
-      data.containerStatus = "creating";
-      this.notifyListeners(id, {
-        id: nanoid(),
-        sessionId: id,
-        type: "container_creating",
-        summary: "Creating sandboxed container for mission execution",
-        timestamp: Date.now(),
-      });
-      this.saveMission(id, true);
-
-      // Create the container
-      const containerInfo = await cm.createContainer(id, this.envConfig);
-      data.containerStatus = "running";
-      data.vncUrl = cm.getVncUrl(id) ?? undefined;
-      data.workspace = "/workspace"; // inside container
-      data.status = "running";
-
-      this.emitEvent(id, {
-        id: nanoid(),
-        sessionId: id,
-        type: "container_running",
-        summary: `Container running (VNC: :${containerInfo.vncPort}, Control: :${containerInfo.controlPort})`,
-        data: {
-          containerId: containerInfo.containerId,
-          vncPort: containerInfo.vncPort,
-          controlPort: containerInfo.controlPort,
-          vncUrl: data.vncUrl,
-        },
-        timestamp: Date.now(),
-      });
-      this.saveMission(id, true);
-
-      // Track agent→task mapping for auto-complete (same pattern as MissionEngine)
-      const agentToTask = new Map<string, string>();
-
-      // Connect to event stream from container
-      const unsubscribe = cm.connectEvents(id, (event) => {
-        data.events.push(event);
-
-        // Sync agent states and infer task progress from container events
-        if (event.type === "agent_working" && event.agent) {
-          const agentState = data.agents.find((a) => a.name === event.agent);
-          if (agentState) {
-            agentState.status = "working";
-            agentState.currentAction = event.summary;
-          }
-
-          if (data.plan) {
-            // Try to determine which task this dispatch is for
-            const promptText = (event.data as Record<string, unknown> | undefined)?.prompt as string | undefined;
-            let taskId: string | undefined;
-            if (promptText) {
-              for (const t of data.plan.tasks) {
-                if (promptText.includes(t.id)) { taskId = t.id; break; }
-              }
-            }
-            if (!taskId) {
-              const task = data.plan.tasks.find(
-                (t) => t.assignee === event.agent && t.status === "pending"
-              );
-              taskId = task?.id;
-            }
-
-            const prevTaskId = agentToTask.get(event.agent);
-
-            // Only auto-complete previous task if this is a genuinely NEW task dispatch
-            // (not a duplicate dispatch for the same task)
-            if (prevTaskId && taskId && taskId !== prevTaskId) {
-              const prevTask = data.plan.tasks.find((t) => t.id === prevTaskId);
-              if (prevTask && prevTask.status === "in_progress") {
-                prevTask.status = "completed";
-              }
-            }
-
-            if (taskId) {
-              const task = data.plan.tasks.find((t) => t.id === taskId);
-              if (task && task.status === "pending") {
-                task.status = "in_progress";
-                agentToTask.set(event.agent, taskId);
-              }
-            }
-          }
-        }
-
-        // Set completion state BEFORE notifying (WS handler reads data synchronously)
-        if (event.type === "session_completed") {
-          data.status = "completed";
-          data.completedAt = Date.now();
-          data.containerStatus = "stopped";
-          // Mark all remaining tasks as completed (auto-complete any in-progress too)
-          if (data.plan) {
-            for (const task of data.plan.tasks) {
-              if (task.status !== "failed") task.status = "completed";
-            }
-          }
-          // Mark all agents as completed
-          for (const agentState of data.agents) {
-            if (agentState.status !== "error") {
-              agentState.status = "completed";
-              agentState.currentAction = null;
-            }
-          }
-        } else if (event.type === "session_error" && !event.agent) {
-          data.status = "failed";
-          data.completedAt = Date.now();
-          data.containerStatus = "error";
-          // Mark in-progress tasks as failed, leave pending as pending
-          if (data.plan) {
-            for (const task of data.plan.tasks) {
-              if (task.status === "in_progress") task.status = "failed";
-            }
-          }
-          // Mark working agents as error
-          for (const agentState of data.agents) {
-            if (agentState.status === "working") {
-              agentState.status = "error";
-              agentState.currentAction = null;
-            }
-          }
-        }
-
-        this.notifyListeners(id, event);
-
-        // Post-notify actions
-        if (event.type === "session_completed" || (event.type === "session_error" && !event.agent)) {
-          this.saveMission(id, true);
-          cm.destroyContainer(id).catch((err) =>
-            console.error(`Failed to destroy container for ${id}:`, err)
-          );
-        } else {
-          this.saveMission(id); // debounced
-        }
-      });
-      data.containerUnsubscribe = unsubscribe;
-
-      // Start execution inside the container
-      await cm.executeInContainer(id, data.plan, this.envConfig);
-    } catch (err) {
-      console.error(`Mission ${id} container execution failed:`, err);
-      data.status = "failed";
-      data.completedAt = Date.now();
-      data.containerStatus = "error";
-      this.saveMission(id, true);
-
-      // Try to cleanup
-      cm.destroyContainer(id).catch(() => {});
-    }
-  }
-
-  /**
-   * Local execution: thin SDK relay — raw SDKMessage events sent to frontend.
-   */
-  private async approvePlanLocal(id: string, data: MissionData): Promise<void> {
-    // Initialize engine and workspace
-    const engine = new MissionEngine(this.envConfig);
-    data.engine = engine;
-    data.workspace = await engine.initWorkspace(id);
+    data.prompt = prompt;
     data.status = "running";
-
-    this.saveMission(id, true);
-
-    // Execute in background — two callbacks: SDK relay + lifecycle
-    engine
-      .executePlan(
-        data.plan!,
-        data.workspace,
-        // SDK message relay — send raw to WebSocket, persist for replay
-        (envelope) => {
-          data.sdkMessages.push(envelope);
-          this.notifySDKMessageListeners(id, envelope);
-          this.saveMission(id); // debounced
-        },
-        // Lifecycle events — update mission status
-        (event) => {
-          data.events.push(event);
-          this.notifyListeners(id, event);
-
-          if (event.type === "session_completed") {
-            data.status = "completed";
-            data.completedAt = Date.now();
-            this.saveMission(id, true);
-          } else if (event.type === "session_error" && !event.agent) {
-            data.status = "failed";
-            data.completedAt = Date.now();
-            this.saveMission(id, true);
-          }
-        },
-      )
-      .catch((err) => {
-        console.error(`Mission ${id} execution failed:`, err);
-        data.status = "failed";
-        data.completedAt = Date.now();
-        this.saveMission(id, true);
-      });
-  }
-
-  async sendMessage(id: string, content: string): Promise<ChatMessage> {
-    const data = this.missions.get(id);
-    if (!data) throw new Error(`Mission ${id} not found`);
-
-    const message: ChatMessage = {
+    data.startedAt = Date.now();
+    data.chat.push({
       id: `msg-${nanoid(8)}`,
       sessionId: id,
       role: "user",
-      content,
+      content: prompt,
       timestamp: Date.now(),
-    };
-    data.chat.push(message);
+    });
 
-    // Delegate to container or local engine
-    if (this.useContainers() && this.containerManager) {
-      try {
-        await this.containerManager.sendMessage(id, content);
-      } catch (err) {
-        console.error(`Failed to send message to container for ${id}:`, err);
-      }
-    } else if (data.engine) {
-      await data.engine.sendMessage(content);
-    }
-
-    this.saveMission(id);
-    return message;
-  }
-
-  /**
-   * Relay user-provided credentials to the running container agent.
-   */
-  async relayCredential(id: string, credential: CredentialPayload): Promise<void> {
-    if (!this.containerManager) {
-      throw new Error("Container manager not available");
-    }
-
-    await this.containerManager.sendCredential(id, credential);
-
-    this.emitEvent(id, {
-      id: nanoid(),
+    // ── Step 1: Create container ─────────────────────────────────────────────
+    const sandboxConfig = {
       sessionId: id,
-      type: "credential_provided",
-      summary: `Credentials provided for request ${credential.requestId}`,
-      data: { requestId: credential.requestId },
-      timestamp: Date.now(),
+      workspaceDir: `/workspace/${id}`,
+      controlPort: 3001,
+      memoryBytes: 4 * 1024 * 1024 * 1024,
+      nanoCpus: 2_000_000_000,
+      diskSizeGb: 10,
+      wallClockTimeoutMs: 30 * 60 * 1000,
+      idleTimeoutMs: 30 * 60 * 1000,
+      costBudgetUsd: 5,
+    };
+
+    const containerInfo = await this.containerManager.createSessionContainer(
+      sandboxConfig,
+      this.proxyPort,
+    );
+
+    data.containerId = containerInfo.containerId;
+    data.hostPort = containerInfo.hostPort;
+    data.authToken = containerInfo.authToken;
+    data.workspace = sandboxConfig.workspaceDir;
+    await this.saveMission(id, true);
+
+    // ── Step 2: Wait for control server to be ready ──────────────────────────
+    await this.containerManager.waitForReady(containerInfo.hostPort, containerInfo.authToken);
+
+    // ── Step 3: Start session timers ─────────────────────────────────────────
+    data.timers = startSessionTimers(id, (sid, reason) =>
+      this.handleTimeout(sid, reason),
+    );
+
+    // ── Step 4: Connect to event stream ─────────────────────────────────────
+    data.disconnectWs = this.containerClient.connectEvents(
+      containerInfo.hostPort,
+      containerInfo.authToken,
+      (rawData) => this.handleContainerEvent(id, rawData, sandboxConfig.costBudgetUsd),
+      (err) => this.handleSessionError(id, { error: err.message }),
+    );
+
+    // ── Step 5: Send prompt to container ────────────────────────────────────
+    await this.containerClient.startSession(containerInfo.hostPort, containerInfo.authToken, {
+      prompt,
+      sessionId: id,
     });
   }
 
-  /**
-   * Get container info for a mission (VNC URL, status).
-   */
-  getContainerInfo(id: string): { vncUrl: string | null; containerStatus: string | null } {
-    const data = this.missions.get(id);
-    if (!data) return { vncUrl: null, containerStatus: null };
+  // ── Event relay ──────────────────────────────────────────────────────────────
 
-    return {
-      vncUrl: data.vncUrl ?? (this.containerManager?.getVncUrl(id) ?? null),
-      containerStatus: data.containerStatus ?? null,
-    };
+  private handleContainerEvent(
+    id: string,
+    rawData: unknown,
+    costBudgetUsd: number,
+  ): void {
+    const data = this.missions.get(id);
+    if (!data) return;
+
+    // Reset idle timer on any message from the container
+    data.timers?.resetActivity();
+
+    const message = rawData as Record<string, unknown>;
+    const msgType = message["type"];
+
+    if (msgType === "session_completed") {
+      this.handleSessionComplete(id, message);
+    } else if (msgType === "session_error") {
+      this.handleSessionError(id, message);
+    } else if (msgType === "session_started") {
+      // session_started event from agent-control — emit to frontend
+      const event: SessionEvent = {
+        id: nanoid(),
+        sessionId: id,
+        type: "session_started",
+        summary: "Session started",
+        data: message as Record<string, unknown>,
+        timestamp: Date.now(),
+      };
+      data.events.push(event);
+      this.notifyEvent(id, event);
+      this.saveMission(id);
+    } else {
+      // SDK envelope — relay to existing pipeline
+      const envelope = rawData as SDKEnvelope;
+
+      // Capture SDK session ID for resume if present
+      if (
+        typeof envelope.msg === "object" &&
+        envelope.msg !== null &&
+        "session_id" in (envelope.msg as object)
+      ) {
+        const msgRecord = envelope.msg as Record<string, unknown>;
+        if (typeof msgRecord["session_id"] === "string") {
+          data.sdkSessionId = msgRecord["session_id"];
+        }
+      }
+
+      data.sdkMessages.push(envelope);
+      this.notifySDK(id, envelope);
+
+      // Cost monitoring — process message and check budget
+      this.costMonitor.processSDKMessage(id, envelope.msg);
+      const budgetResult = this.costMonitor.checkBudget(id, costBudgetUsd);
+      if (budgetResult.exceeded) {
+        const warningEvent: SessionEvent = {
+          id: nanoid(),
+          sessionId: id,
+          type: "session_error" as SessionEvent["type"],
+          summary: `Cost budget exceeded: $${budgetResult.total.toFixed(4)} of $${budgetResult.budget} used`,
+          data: {
+            costUsd: budgetResult.total,
+            budgetUsd: budgetResult.budget,
+            exceeded: true,
+          },
+          timestamp: Date.now(),
+        };
+        // Emit as a status_update-style event (we use session_error type which is in the enum)
+        // Since the EventType enum only has session_started/completed/error, use session_error
+        // but add a data.kind field to distinguish budget warnings from actual errors.
+        (warningEvent.data as Record<string, unknown>)["kind"] = "budget_warning";
+        data.events.push(warningEvent);
+        this.notifyEvent(id, warningEvent);
+      }
+
+      this.saveMission(id);
+    }
   }
+
+  // ── Session completion and cleanup ───────────────────────────────────────────
+
+  private handleSessionComplete(id: string, _rawData: unknown): void {
+    const data = this.missions.get(id);
+    if (!data) return;
+
+    const event: SessionEvent = {
+      id: nanoid(),
+      sessionId: id,
+      type: "session_completed",
+      summary: "Session completed",
+      timestamp: Date.now(),
+    };
+    data.events.push(event);
+    this.notifyEvent(id, event);
+
+    data.status = "completed";
+    data.completedAt = Date.now();
+
+    this.cleanup(id).catch((err) =>
+      console.error(`MissionManager: cleanup failed for ${id}:`, err),
+    );
+  }
+
+  private handleSessionError(id: string, rawData: unknown): void {
+    const data = this.missions.get(id);
+    if (!data) return;
+
+    const errData = rawData as Record<string, unknown>;
+    const event: SessionEvent = {
+      id: nanoid(),
+      sessionId: id,
+      type: "session_error",
+      summary: typeof errData["error"] === "string" ? errData["error"] : "Session error",
+      data: errData as Record<string, unknown>,
+      timestamp: Date.now(),
+    };
+    data.events.push(event);
+    this.notifyEvent(id, event);
+
+    data.status = "failed";
+    data.completedAt = Date.now();
+
+    this.cleanup(id).catch((err) =>
+      console.error(`MissionManager: cleanup failed for ${id}:`, err),
+    );
+  }
+
+  private handleTimeout(id: string, reason: "idle" | "wall_clock"): void {
+    console.warn(`MissionManager: session ${id} timed out (${reason})`);
+    const data = this.missions.get(id);
+    if (!data || data.status !== "running") return;
+
+    // Attempt to abort the session in the container
+    if (data.hostPort && data.authToken) {
+      this.containerClient
+        .abortSession(data.hostPort, data.authToken)
+        .catch((err) =>
+          console.warn(`MissionManager: abort request failed for ${id}:`, err),
+        );
+    }
+
+    this.handleSessionError(id, { error: `Session terminated: ${reason} timeout` });
+  }
+
+  private async cleanup(id: string): Promise<void> {
+    const data = this.missions.get(id);
+    if (!data) return;
+
+    // 1. Disconnect WebSocket
+    if (data.disconnectWs) {
+      data.disconnectWs();
+      data.disconnectWs = null;
+    }
+
+    // 2. Clear timers
+    if (data.timers) {
+      data.timers.clearAll();
+      data.timers = null;
+    }
+
+    // 3. Copy workspace files from container before destruction
+    if (data.containerId && data.workspace) {
+      try {
+        const workspaceStream =
+          await this.containerManager.copyWorkspaceFromContainer(
+            data.containerId,
+            data.workspace,
+            path.join(os.homedir(), ".stallion", "sessions", id),
+          );
+        void workspaceStream; // copyWorkspaceFromContainer writes to disk internally
+      } catch (err) {
+        console.warn(`MissionManager: failed to copy workspace for ${id}:`, err);
+      }
+    }
+
+    // 4. Destroy container
+    if (data.containerId) {
+      await this.containerManager.destroySessionContainer(data.containerId);
+      data.containerId = null;
+    }
+
+    // 5. Reset cost tracker
+    this.costMonitor.reset(id);
+
+    // 6. Save final state
+    await this.saveMission(id, true);
+  }
+
+  // ── Read-only accessors ──────────────────────────────────────────────────────
 
   getMission(id: string): Mission | null {
-    const data = this.missions.get(id);
-    if (!data) return null;
-    return this.toMission(id, data);
+    const d = this.missions.get(id);
+    return d ? this.toMission(id, d) : null;
   }
 
   listMissions(userId?: string): Mission[] {
     return Array.from(this.missions.entries())
-      .filter(([, data]) => !userId || data.userId === userId)
-      .map(([id, data]) => this.toMission(id, data));
+      .filter(([, d]) => !userId || d.userId === userId)
+      .map(([id, d]) => this.toMission(id, d));
   }
 
-  getEvents(id: string, since?: number, limit?: number): SessionEvent[] {
-    const data = this.missions.get(id);
-    if (!data) return [];
+  getEvents(id: string): SessionEvent[] {
+    return this.missions.get(id)?.events ?? [];
+  }
 
-    let events = data.events;
-    if (since) {
-      events = events.filter((e) => e.timestamp > since);
-    }
-    if (limit) {
-      events = events.slice(-limit);
-    }
-    return events;
+  getSDKMessages(id: string): SDKEnvelope[] {
+    return this.missions.get(id)?.sdkMessages ?? [];
   }
 
   getChat(id: string): ChatMessage[] {
     return this.missions.get(id)?.chat ?? [];
   }
 
-  async listWorkspaceFiles(id: string, dir?: string): Promise<string[]> {
-    const data = this.missions.get(id);
-    if (!data) return [];
+  getMissionUserId(id: string): string | undefined {
+    return this.missions.get(id)?.userId;
+  }
 
-    // Delegate to container if using containers
-    if (this.useContainers() && this.containerManager) {
-      return this.containerManager.listFiles(id, dir);
+  async listWorkspaceFiles(id: string, dir?: string): Promise<string[]> {
+    const d = this.missions.get(id);
+    if (!d?.workspace) return [];
+
+    // For running sessions, proxy through ContainerClient
+    if (d.status === "running" && d.hostPort && d.authToken) {
+      try {
+        const url = dir
+          ? `http://localhost:${d.hostPort}/files?dir=${encodeURIComponent(dir)}`
+          : `http://localhost:${d.hostPort}/files`;
+        const res = await fetch(url, { headers: { "x-control-token": d.authToken } });
+        if (res.ok) {
+          const json = (await res.json()) as { files: string[] };
+          return json.files ?? [];
+        }
+      } catch {
+        // Fall through to local read
+      }
     }
 
-    if (!data.workspace) return [];
-
-    const target = dir
-      ? path.resolve(data.workspace, dir)
-      : data.workspace;
-
-    // Security: ensure target is within workspace
-    if (!target.startsWith(data.workspace)) return [];
-
+    // For completed sessions (or when container not reachable), read from host storage
+    const target = dir ? path.resolve(d.workspace, dir) : d.workspace;
+    if (!target.startsWith(d.workspace)) return [];
     try {
-      return await walkDir(target, data.workspace);
+      return await walkDir(target, d.workspace);
     } catch {
       return [];
     }
   }
 
   async readWorkspaceFile(id: string, filePath: string): Promise<string | null> {
-    const data = this.missions.get(id);
-    if (!data) return null;
+    const d = this.missions.get(id);
+    if (!d?.workspace) return null;
 
-    // Delegate to container if using containers
-    if (this.useContainers() && this.containerManager) {
-      return this.containerManager.readFile(id, filePath);
+    // For running sessions, proxy through ContainerClient
+    if (d.status === "running" && d.hostPort && d.authToken) {
+      try {
+        const url = `http://localhost:${d.hostPort}/files/read?path=${encodeURIComponent(filePath)}`;
+        const res = await fetch(url, { headers: { "x-control-token": d.authToken } });
+        if (res.ok) return res.text();
+      } catch {
+        // Fall through to local read
+      }
     }
 
-    if (!data.workspace) return null;
-
-    const target = path.resolve(data.workspace, filePath);
-    if (!target.startsWith(data.workspace)) return null;
-
+    // For completed sessions, read from host workspace
+    const target = path.resolve(d.workspace, filePath);
+    if (!target.startsWith(d.workspace)) return null;
     try {
       return await fs.readFile(target, "utf-8");
     } catch {
@@ -775,92 +563,55 @@ export class MissionManager {
     }
   }
 
-  subscribe(
-    id: string,
-    listener: (event: SessionEvent) => void,
-  ): () => void {
-    if (!this.eventListeners.has(id)) {
-      this.eventListeners.set(id, new Set());
-    }
+  // ── Subscriptions ─────────────────────────────────────────────────────────────
+
+  subscribe(id: string, listener: (e: SessionEvent) => void): () => void {
+    if (!this.eventListeners.has(id)) this.eventListeners.set(id, new Set());
     this.eventListeners.get(id)!.add(listener);
     return () => {
       this.eventListeners.get(id)?.delete(listener);
     };
   }
 
-  /** Subscribe to raw SDK message relay for a mission. */
-  subscribeSDK(
-    id: string,
-    listener: (envelope: SDKEnvelope) => void,
-  ): () => void {
-    if (!this.sdkMessageListeners.has(id)) {
-      this.sdkMessageListeners.set(id, new Set());
-    }
+  subscribeSDK(id: string, listener: (e: SDKEnvelope) => void): () => void {
+    if (!this.sdkMessageListeners.has(id)) this.sdkMessageListeners.set(id, new Set());
     this.sdkMessageListeners.get(id)!.add(listener);
     return () => {
       this.sdkMessageListeners.get(id)?.delete(listener);
     };
   }
 
-  /** Get persisted SDK messages for replay on reconnect. */
-  getSDKMessages(id: string): SDKEnvelope[] {
-    return this.missions.get(id)?.sdkMessages ?? [];
+  private notifyEvent(id: string, event: SessionEvent): void {
+    for (const l of this.eventListeners.get(id) ?? []) l(event);
   }
 
-  private emitEvent(id: string, event: SessionEvent): void {
-    const data = this.missions.get(id);
-    if (data) data.events.push(event);
-    this.notifyListeners(id, event);
+  private notifySDK(id: string, envelope: SDKEnvelope): void {
+    for (const l of this.sdkMessageListeners.get(id) ?? []) l(envelope);
   }
 
-  private notifyListeners(id: string, event: SessionEvent): void {
-    const listeners = this.eventListeners.get(id);
-    if (!listeners) return;
-    for (const listener of listeners) {
-      listener(event);
-    }
-  }
-
-  private notifySDKMessageListeners(id: string, envelope: SDKEnvelope): void {
-    const listeners = this.sdkMessageListeners.get(id);
-    if (!listeners) return;
-    for (const listener of listeners) {
-      listener(envelope);
-    }
-  }
-
-  getMissionUserId(id: string): string | undefined {
-    return this.missions.get(id)?.userId;
-  }
-
-  private toMission(id: string, data: MissionData): Mission {
+  private toMission(id: string, d: MissionData): Mission {
     return {
       id,
-      userId: data.userId,
-      status: data.status,
-      plan: data.plan,
-      agents: data.agents,
-      workspace: data.workspace,
-      readinessScore: data.readinessScore,
-      startedAt: data.startedAt,
-      completedAt: data.completedAt,
-      createdAt: data.createdAt,
-      vncUrl: data.vncUrl,
-      containerStatus: data.containerStatus,
+      userId: d.userId,
+      prompt: d.prompt,
+      status: d.status,
+      workspace: d.workspace,
+      startedAt: d.startedAt,
+      completedAt: d.completedAt,
+      createdAt: d.createdAt,
     };
   }
 }
 
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 async function walkDir(dir: string, root: string): Promise<string[]> {
   const files: string[] = [];
-  const entries = await fs.readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
+  for (const entry of await fs.readdir(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...(await walkDir(full, root)));
-    } else {
-      files.push(path.relative(root, full));
-    }
+    if (entry.name === ".claude" || entry.name === "node_modules") continue;
+    if (entry.isDirectory()) files.push(...(await walkDir(full, root)));
+    else files.push(path.relative(root, full));
   }
   return files;
 }
