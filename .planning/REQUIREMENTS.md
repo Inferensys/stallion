@@ -114,24 +114,24 @@
 | FILE-01 | Phase 2 | Pending |
 | FILE-02 | Phase 2 | Pending |
 | FILE-03 | Phase 2 | Pending |
-| AUTH-01 | Phase 3 | Pending |
-| AUTH-02 | Phase 3 | Pending |
-| AUTH-03 | Phase 3 | Pending |
-| AUTH-04 | Phase 3 | Pending |
-| CONF-01 | Phase 4 | Pending |
-| CONF-02 | Phase 4 | Pending |
-| CONF-03 | Phase 4 | Pending |
-| CONF-04 | Phase 4 | Pending |
-| CONF-05 | Phase 4 | Pending |
-| MCP-01 | Phase 5 | Pending |
-| MCP-02 | Phase 5 | Pending |
-| MCP-03 | Phase 5 | Pending |
-| MCP-04 | Phase 5 | Pending |
 | UI-01 | Phase 2 | Pending |
 | UI-02 | Phase 2 | Pending |
 | UI-03 | Phase 2 | Pending |
 | UI-04 | Phase 2 | Pending |
 | UI-05 | Phase 2 | Pending |
+| AUTH-01 | Phase 3 | Pending |
+| AUTH-02 | Phase 3 | Pending |
+| AUTH-03 | Phase 3 | Pending |
+| AUTH-04 | Phase 3 | Pending |
+| CONF-01 | Phase 3 | Pending |
+| CONF-02 | Phase 3 | Pending |
+| CONF-03 | Phase 3 | Pending |
+| CONF-04 | Phase 3 | Pending |
+| CONF-05 | Phase 3 | Pending |
+| MCP-01 | Phase 4 | Pending |
+| MCP-02 | Phase 4 | Pending |
+| MCP-03 | Phase 4 | Pending |
+| MCP-04 | Phase 4 | Pending |
 
 **Coverage:**
 - v1 requirements: 33 total
@@ -140,4 +140,4 @@
 
 ---
 *Requirements defined: 2026-03-07*
-*Last updated: 2026-03-07 after initial definition*
+*Last updated: 2026-03-07 after roadmap creation — AUTH and CONF consolidated into Phase 3 (coarse granularity)*
