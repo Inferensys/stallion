@@ -9,11 +9,11 @@
 
 - [x] **SAND-01**: Each CC session runs in an isolated Docker container with its own filesystem
 - [x] **SAND-02**: CC has full tool access inside the container: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, Task
-- [ ] **SAND-03**: Container has resource limits: 4GB RAM, 2 CPU, 10GB disk
-- [ ] **SAND-04**: Per-session wall-clock timeout (configurable, default 30 minutes)
-- [ ] **SAND-05**: Per-session API cost budget cap (configurable, default $5)
+- [x] **SAND-03**: Container has resource limits: 4GB RAM, 2 CPU, 10GB disk
+- [x] **SAND-04**: Per-session wall-clock timeout (configurable, default 30 minutes)
+- [x] **SAND-05**: Per-session API cost budget cap (configurable, default $5)
 - [ ] **SAND-06**: Credential proxy — CC session never sees raw API keys; proxy injects auth headers
-- [ ] **SAND-07**: Container cleanup on session end (no zombie containers)
+- [x] **SAND-07**: Container cleanup on session end (no zombie containers)
 
 ### Session Management
 
@@ -99,11 +99,11 @@
 |-------------|-------|--------|
 | SAND-01 | Phase 1 | Complete (01-01) |
 | SAND-02 | Phase 1 | Complete (01-01) |
-| SAND-03 | Phase 1 | Pending |
-| SAND-04 | Phase 1 | Pending |
-| SAND-05 | Phase 1 | Pending |
+| SAND-03 | Phase 1 | Complete |
+| SAND-04 | Phase 1 | Complete |
+| SAND-05 | Phase 1 | Complete |
 | SAND-06 | Phase 1 | Pending |
-| SAND-07 | Phase 1 | Pending |
+| SAND-07 | Phase 1 | Complete |
 | SESS-01 | Phase 2 | Pending |
 | SESS-02 | Phase 2 | Pending |
 | SESS-03 | Phase 2 | Pending |

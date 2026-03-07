@@ -92,7 +92,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Sandbox Infrastructure | 1/3 | In progress | - |
+| 1. Sandbox Infrastructure | 2/3 | In Progress|  |
 | 2. Session UI and File Access | 0/3 | Not started | - |
 | 3. Auth and User Configuration | 0/3 | Not started | - |
 | 4. MCP Marketplace | 0/2 | Not started | - |
