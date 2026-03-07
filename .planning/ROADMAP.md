@@ -29,12 +29,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. A session that exceeds its wall-clock timeout or API cost budget is automatically stopped
   4. CC inside the container never receives a raw API key — all auth is proxied
   5. A single container cannot consume more than 4GB RAM, 2 CPU, or 10GB disk
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: SandboxProvider abstraction and Docker integration (dockerode)
-- [ ] 01-02: Credential proxy and resource limits
-- [ ] 01-03: Cost/TTL budget caps and subprocess lifecycle management
+- [ ] 01-01-PLAN.md — Agent control server package + Dockerfile + shared sandbox types
+- [ ] 01-02-PLAN.md — Container lifecycle manager, backend integration, session timers, JSONL persistence
+- [ ] 01-03-PLAN.md — Credential proxy, cost budget monitoring, network isolation
 
 ### Phase 2: Session UI and File Access
 **Goal**: A user can start a CC session, watch it work in real time, steer it with follow-up messages, and retrieve the files it created
@@ -92,7 +92,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Sandbox Infrastructure | 0/3 | Not started | - |
+| 1. Sandbox Infrastructure | 0/3 | Planning complete | - |
 | 2. Session UI and File Access | 0/3 | Not started | - |
 | 3. Auth and User Configuration | 0/3 | Not started | - |
 | 4. MCP Marketplace | 0/2 | Not started | - |
