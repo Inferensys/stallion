@@ -2,9 +2,7 @@
 
 ![Stallion cover](docs/stallion-cover.svg)
 
-Most agent demos are a chat box with a spinner.
-
-Stallion is the missing middle: plan the work, assign agents, show the graph, run the job in a sandbox, and let a human see what happened.
+A Multi-Agent Orchestration platform that plans the work, assign agents, show the graph, run the job in a VM sandbox (E2B), and let a end-user user see what happened.
 
 That is the thing teams usually discover they need after the first impressive prototype.
 
@@ -173,4 +171,9 @@ Do those before pointing agents at production data.
 
 Stallion is a practical starting point for teams building multi-agent products, internal agent platforms, or vertical AI operations tools.
 
+![Stallion cover](docs/inferensys.svg)
+
+
 If that is what you are working on, talk to [Inferensys](https://inferensys.com/).
+
+Contact Us: https://inferensys.com/contact
