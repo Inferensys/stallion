@@ -34,7 +34,6 @@ const nav = [
   { href: "/billing", label: "Billing" },
   { href: "/audit", label: "Audit" },
   { href: "/settings", label: "Settings" },
-  { href: "/portfolio", label: "Case Study" },
 ];
 
 export function PortfolioShell({
