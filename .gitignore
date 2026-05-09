@@ -4,3 +4,7 @@ dist/
 .env
 .env.local
 *.tsbuildinfo
+.DS_Store
+.playwright-mcp/
+coverage/
+*.log

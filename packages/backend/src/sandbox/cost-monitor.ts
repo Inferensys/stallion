@@ -1,13 +1,11 @@
 // ─── CostMonitor ──────────────────────────────────────────────────────────────
 // Per-session cost tracking and budget enforcement.
 //
-// Important limitation (SDK Pitfall 7):
+// Important limitation:
 //   The SDK only emits `total_cost_usd` in "result" messages at query() completion.
 //   This means cost enforcement is POST-HOC — we cannot abort a session mid-turn
-//   based on cost. The checkBudget() call in MissionManager (Plan 02) emits a
-//   warning event AFTER each session completes. For Phase 1 (MVP/dev), this is
-//   acceptable. Real-time enforcement would require a different mechanism, e.g.
-//   using maxTurns as a proxy.
+//   based on cost. Real-time enforcement needs a provider-side budget API,
+//   proxy-level metering, or turn limits as a rough guardrail.
 //
 //   processSDKMessage() uses SET semantics (not additive) for result messages
 //   because `total_cost_usd` in the result is already cumulative — adding it

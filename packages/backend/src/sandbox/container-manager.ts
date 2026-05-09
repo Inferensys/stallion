@@ -31,7 +31,7 @@ export class ContainerManager {
       Env: [
         `CONTROL_AUTH_TOKEN=${authToken}`,
         `WORKSPACE_DIR=${config.workspaceDir}`,
-        // Session-specific placeholder key — the credential proxy (Plan 03) uses
+        // Session-specific placeholder key. The credential proxy uses
         // this value to identify the session and route to the correct API key.
         `ANTHROPIC_API_KEY=session-${config.sessionId}`,
         // Route all SDK API calls through the credential proxy on the host

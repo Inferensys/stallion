@@ -1,7 +1,6 @@
 // ─── Session Timers ───────────────────────────────────────────────────────────
-// Implements Pattern 7 from research: two independent timers for idle and
-// wall-clock timeouts. resetActivity() only resets the idle timer.
-// clearAll() stops both.
+// Maintains separate idle and wall-clock timers. resetActivity() only resets
+// the idle timer. clearAll() stops both.
 
 export interface TimerHandle {
   resetActivity(): void;

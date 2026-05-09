@@ -28,6 +28,8 @@ const headingFont = Playfair_Display({
 
 const STORAGE_KEY = "stallion-mission-id";
 const SIDEBAR_KEY = "stallion-sidebar";
+const PORTFOLIO_MODE = process.env.NEXT_PUBLIC_PORTFOLIO_MODE === "true";
+const ONE_DAY_MS = 86_400_000;
 
 type LandingPhase = "idle" | "exploring" | "planning" | "entering";
 
@@ -141,6 +143,9 @@ export default function Home() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const reset = useMissionStore((s) => s.reset);
+  const visibleMissions = PORTFOLIO_MODE
+    ? missions.filter((m) => m.status !== "failed" && Date.now() - m.createdAt < ONE_DAY_MS)
+    : missions;
 
   // Exploration streaming state from store (fed by WebSocket)
   const explorationFeed = useMissionStore((s) => s.explorationFeed);
@@ -435,7 +440,7 @@ export default function Home() {
     return (
       <div className="flex h-screen bg-bg">
         <Sidebar
-          missions={missions}
+          missions={visibleMissions}
           activeMissionId={missionId}
           collapsed={!sidebarOpen}
           user={user}
@@ -457,7 +462,7 @@ export default function Home() {
     return (
       <div className="flex h-screen bg-bg">
         <Sidebar
-          missions={missions}
+          missions={visibleMissions}
           activeMissionId={missionId}
           collapsed={!sidebarOpen}
           user={user}
@@ -637,7 +642,7 @@ export default function Home() {
   return (
     <div className="flex h-screen bg-bg">
       <Sidebar
-        missions={missions}
+        missions={visibleMissions}
         activeMissionId={null}
         collapsed={!sidebarOpen}
         user={user}

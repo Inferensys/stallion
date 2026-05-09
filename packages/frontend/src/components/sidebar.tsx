@@ -26,6 +26,7 @@ const STATUS_COLOR: Record<string, string> = {
   completed: "bg-info",
   failed: "bg-error",
 };
+const PORTFOLIO_MODE = process.env.NEXT_PUBLIC_PORTFOLIO_MODE === "true";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -118,7 +119,9 @@ export function Sidebar({
   }, []);
 
   const avatarUrl = user?.user_metadata?.avatar_url as string | undefined;
-  const displayName = (user?.user_metadata?.full_name as string | undefined) ?? user?.email ?? "";
+  const displayName = PORTFOLIO_MODE
+    ? "Stallion"
+    : (user?.user_metadata?.full_name as string | undefined) ?? user?.email ?? "";
 
   async function handleSignOut() {
     const supabase = createClient();
@@ -283,13 +286,15 @@ export function Sidebar({
                   {displayName}
                 </p>
               </div>
-              <button
-                onClick={handleSignOut}
-                className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-white/[0.06] transition-colors shrink-0"
-                title="Sign out"
-              >
-                <LogOutIcon />
-              </button>
+              {!PORTFOLIO_MODE && (
+                <button
+                  onClick={handleSignOut}
+                  className="p-1.5 rounded-md text-text-muted hover:text-text-primary hover:bg-white/[0.06] transition-colors shrink-0"
+                  title="Sign out"
+                >
+                  <LogOutIcon />
+                </button>
+              )}
             </div>
           </>
         )}

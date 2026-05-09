@@ -1,7 +1,7 @@
 # stallion-agent-control container image
-# Headless only — no Xvfb, VNC, or Chromium (locked decision from CONTEXT.md)
+# Headless control server for sandboxed agent sessions.
 # Target image size: ~500MB
-# iptables included for network isolation (SAND-06, applied post-start by backend)
+# iptables is included so the backend can apply network isolation rules.
 
 FROM node:22-slim
 

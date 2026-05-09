@@ -13,6 +13,6 @@
     "dev:frontend": "npm -w @stallion/frontend run dev",
     "dev:runtime": "npm -w @stallion/agent-runtime run dev",
     "build": "npm -w @stallion/frontend run build",
-    "typecheck": "npm -ws run typecheck"
+    "typecheck": "npm --workspaces run typecheck"
   }
 }

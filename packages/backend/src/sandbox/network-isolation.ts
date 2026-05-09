@@ -5,10 +5,9 @@
 //
 // Requires: container must have CapAdd: ["NET_ADMIN"] (set by ContainerManager).
 //
-// Limitation (Phase 1):
+// Limitation:
 //   IP blocking by resolved DNS is imperfect for CDN-hosted domains — IPs can
-//   change, and CDNs may serve many IPs. This is acceptable for MVP/dev isolation.
-//   For production, the recommended approach is a Docker `internal` network with
+//   change, and CDNs may serve many IPs. For production, prefer a Docker `internal` network with
 //   explicit proxy routing (no public internet access from container at all).
 
 import Docker from "dockerode";

@@ -2,8 +2,13 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { LoginButton } from "@/components/login-button";
 import { StallionMark } from "@/components/logo";
+import { LoginScreen } from "@/components/portfolio-screens";
 
 export default async function LoginPage() {
+  if (process.env.NEXT_PUBLIC_PORTFOLIO_MODE === "true") {
+    return <LoginScreen />;
+  }
+
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
