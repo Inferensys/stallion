@@ -1,22 +1,17 @@
-# Stallion
-
 ![Stallion cover](docs/stallion-cover.svg)
 
 A Multi-Agent Orchestration platform that plans the work, assign agents, show the graph, run the job in a VM sandbox (E2B), and let a end-user user see what happened.
 
 That is the thing teams usually discover they need after the first impressive prototype.
 
-If you are building something closer to Devin, Claude Code, GitHub Copilot Workspace, or an internal version of Salesforce Agentforce, this repo is a useful starting point. Not because it is finished. Because the shape is right.
+If you are building something closer to Devin, Claude Code, GitHub Copilot Workspace, or an internal version of Salesforce Agentforce, this repo is a useful starting point. 
 
 It has:
 
-- a planner that turns a request into agents and tasks
+- a planner agent that turns a request into description, agents and tasks
 - a graph that shows dependencies instead of hiding them in chat
-- a review step before agents run
+- QnA & review step before agents run
 - realtime agent and tool activity
-- a sandbox control path
-- a workspace/file inspector
-- auth, admin, billing, team, integration, and audit screens around the core workflow
 
 ## The Demo
 
